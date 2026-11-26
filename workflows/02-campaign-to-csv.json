@@ -1,0 +1,164 @@
+{
+  "name": "LinkDevi — Campaign brief to saved links and CSV",
+  "nodes": [
+    {
+      "id": "run-manually",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "campaign-brief",
+      "name": "Campaign brief",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        250,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return [{json:{campaign:{requestId:'a43c37c0-350a-44ef-9d40-a5900c246891',name:'December launch',url:'https://example.com/sale',utmCampaign:'december-launch',domain:'linkdevi.com',channels:['facebook','line','print']}}}];"
+      }
+    },
+    {
+      "id": "create-saved-campaign",
+      "name": "Create saved campaign",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        500,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://linkdevi.com/api/v1/agent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { action: 'create_campaign', campaign: $json.campaign } }}",
+        "options": {
+          "timeout": 25000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          },
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 2500
+            }
+          }
+        }
+      },
+      "retryOnFail": false,
+      "onError": "stopWorkflow"
+    },
+    {
+      "id": "csv-rows",
+      "name": "CSV rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        750,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const safe = value => { const s=String(value ?? ''); return /^[\\s\\u0000-\\u001f]*[=+@-]/.test(s) ? \"'\"+s : s; };\nreturn $input.all().flatMap((item,index)=>{\n const c=item.json.campaign;\n if(!c || !Array.isArray(c.channels)) throw new Error('Missing saved campaign response');\n return c.channels.map(row=>({json:{campaign:safe(c.name),channel:row.key,short_url:row.link?.shortUrl ?? '',destination_url:row.link?.url ?? '',status:row.link?'saved':'unavailable'},pairedItem:{item:index}}));\n});"
+      }
+    },
+    {
+      "id": "download-csv",
+      "name": "Download CSV",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        1000,
+        0
+      ],
+      "parameters": {
+        "operation": "csv",
+        "binaryPropertyName": "data",
+        "options": {
+          "fileName": "linkdevi-campaign-links.csv",
+          "headerRow": true
+        }
+      }
+    },
+    {
+      "id": "read-before-running",
+      "name": "Read before running",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -430
+      ],
+      "parameters": {
+        "content": "## Setup\n1. Create a LinkDevi account, then a scoped key with links:read and links:write. Hosted plan limits apply.\n2. In Create saved campaign, select a Header Auth credential: header name Authorization, value Bearer YOUR_SCOPED_KEY. Keep the key only in n8n Credentials.\n3. Keep retries disabled. Redirects are disabled so credentials stay on the configured origin.\n4. Preview your data before running. Each selected channel uses one stored-link slot. A timeout may have committed: preserve requestId and the exact campaign payload on retry.\n5. These workflows do not call an LLM, send email, post to social media or enable a schedule. Activate only after reviewing your own setup.\nGuide: https://linkdevi.com/features/ai\n\n## Campaign brief\nReplace the example destination and names with your own. Use a NEW UUID for each NEW campaign. Keep the same UUID and unchanged fields after a timeout. This workflow creates one campaign when manually executed; it is not an offline preview. Download the binary data from Download CSV. Existing UTM values are replaced by the campaign service.",
+        "width": 700,
+        "height": 360
+      }
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "Campaign brief",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Campaign brief": {
+      "main": [
+        [
+          {
+            "node": "Create saved campaign",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create saved campaign": {
+      "main": [
+        [
+          {
+            "node": "CSV rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CSV rows": {
+      "main": [
+        [
+          {
+            "node": "Download CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "tags": []
+}
