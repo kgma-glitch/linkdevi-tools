@@ -1,0 +1,211 @@
+{
+  "name": "LinkDevi — Google Sheets to saved campaign links",
+  "nodes": [
+    {
+      "id": "run-manually",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "read-campaign-rows",
+      "name": "Read campaign rows",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        250,
+        0
+      ],
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_SPREADSHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Campaigns",
+          "mode": "name"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "prepare-campaign-rows",
+      "name": "Prepare campaign rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;\nconst allowed=['facebook','instagram','tiktok','line','email','print','youtube','x'];\nconst input=$input.all(); if(input.length>100) throw new Error('Read at most 100 sheet rows per run');\nconst used=new Set();\nreturn input.flatMap((item,index)=>{\n const r=item.json; if(r.shortUrls) return [];\n if(!uuid.test(String(r.requestId)) || used.has(r.requestId)) throw new Error('Each row needs its own UUID requestId, saved in the sheet before running');\n used.add(r.requestId);\n const channels=String(r.channels??'').split('|').map(x=>x.trim());\n if(!channels.length || new Set(channels).size!==channels.length || channels.some(c=>!allowed.includes(c))) throw new Error('Invalid channels');\n if(!r.name || !r.utmCampaign || !/^https?:\\/\\//i.test(String(r.url)) || /^https?:\\/\\/[^/]*@/i.test(String(r.url))) throw new Error('Provide name, URL and utmCampaign');\n return [{json:{requestId:r.requestId,campaign:{requestId:r.requestId,name:String(r.name),url:String(r.url),utmCampaign:String(r.utmCampaign),domain:String(r.domain||'linkdevi.com'),channels}},pairedItem:{item:index}}];\n});"
+      }
+    },
+    {
+      "id": "create-saved-campaign",
+      "name": "Create saved campaign",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        750,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://linkdevi.com/api/v1/agent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { action: 'create_campaign', campaign: $json.campaign } }}",
+        "options": {
+          "timeout": 25000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          },
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 2500
+            }
+          }
+        }
+      },
+      "retryOnFail": false,
+      "onError": "stopWorkflow"
+    },
+    {
+      "id": "write-links-to-sheet",
+      "name": "Write links to sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1000,
+        0
+      ],
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_SPREADSHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Campaigns",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "requestId": "={{ $('Prepare campaign rows').item.json.requestId }}",
+            "shortUrls": "={{ $json.campaign.channels.map(c => c.link?.shortUrl || '').filter(Boolean).join(' | ') }}",
+            "campaignId": "={{ $json.campaign.id }}"
+          },
+          "matchingColumns": [
+            "requestId"
+          ],
+          "schema": [
+            {
+              "id": "requestId",
+              "displayName": "requestId",
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "shortUrls",
+              "displayName": "shortUrls",
+              "type": "string"
+            },
+            {
+              "id": "campaignId",
+              "displayName": "campaignId",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      }
+    },
+    {
+      "id": "read-before-running",
+      "name": "Read before running",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -430
+      ],
+      "parameters": {
+        "content": "## Setup\n1. Create a LinkDevi account, then a scoped key with links:read and links:write. Hosted plan limits apply.\n2. In Create saved campaign, select a Header Auth credential: header name Authorization, value Bearer YOUR_SCOPED_KEY. Keep the key only in n8n Credentials.\n3. Keep retries disabled. Redirects are disabled so credentials stay on the configured origin.\n4. Preview your data before running. Each selected channel uses one stored-link slot. A timeout may have committed: preserve requestId and the exact campaign payload on retry.\n5. These workflows do not call an LLM, send email, post to social media or enable a schedule. Activate only after reviewing your own setup.\nGuide: https://linkdevi.com/features/ai\n\n## Sheet columns\nrequestId, name, url, utmCampaign, channels, domain, shortUrls, campaignId\nUse one UNIQUE, pre-saved UUID per row. channels uses |, e.g. facebook|line|print. Rows with shortUrls are skipped. Configure the same spreadsheet in both Sheets nodes and select your Google Sheets credential. Output matching uses requestId, not a changing row position. Limit input to 100 rows; 429 stops the workflow. Review your data and credentials before running.",
+        "width": 700,
+        "height": 360
+      }
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "Read campaign rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read campaign rows": {
+      "main": [
+        [
+          {
+            "node": "Prepare campaign rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare campaign rows": {
+      "main": [
+        [
+          {
+            "node": "Create saved campaign",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create saved campaign": {
+      "main": [
+        [
+          {
+            "node": "Write links to sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "tags": []
+}
