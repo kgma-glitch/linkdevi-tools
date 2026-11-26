@@ -1,0 +1,61 @@
+{
+  "name": "@kgma/linkdevi-tools",
+  "version": "0.1.0",
+  "description": "Offline campaign launch kits, a typed LinkDevi API client and a campaign CLI.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "linkdevi": "dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./campaign": {
+      "types": "./dist/campaign.d.ts",
+      "import": "./dist/campaign.js"
+    }
+  },
+  "files": [
+    "dist",
+    "examples",
+    "workflows",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "prepack": "npm run build"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "@types/node": "25.5.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kgma-glitch/linkdevi-tools.git"
+  },
+  "homepage": "https://linkdevi.com/tools/campaign-launch-kit",
+  "bugs": {
+    "url": "https://github.com/kgma-glitch/linkdevi-tools/issues"
+  },
+  "keywords": [
+    "linkdevi",
+    "url-shortener",
+    "utm",
+    "campaign",
+    "cli",
+    "sdk",
+    "n8n",
+    "ai"
+  ]
+}
