@@ -1,0 +1,12 @@
+{
+  "requestId": "a43c37c0-350a-44ef-9d40-a5900c246891",
+  "name": "December launch",
+  "url": "https://example.com/sale",
+  "utmCampaign": "december-launch",
+  "domain": "linkdevi.com",
+  "channels": [
+    "facebook",
+    "line",
+    "print"
+  ]
+}
