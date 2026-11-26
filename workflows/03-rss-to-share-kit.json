@@ -1,0 +1,242 @@
+{
+  "name": "LinkDevi — RSS articles to saved campaign share kits",
+  "nodes": [
+    {
+      "id": "run-manually",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "read-rss",
+      "name": "Read RSS",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.1,
+      "position": [
+        250,
+        0
+      ],
+      "parameters": {
+        "url": "https://example.com/feed.xml",
+        "options": {}
+      }
+    },
+    {
+      "id": "prepare-article-identities",
+      "name": "Prepare article identities",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return $input.all().slice(0,5).map((item,index)=>{\n const r=item.json; const url=String(r.link??'');\n if(!/^https?:\\/\\//i.test(url) || /^https?:\\/\\/[^/]*@/i.test(url)) throw new Error('RSS item needs an http(s) URL without credentials');\n const guid=String(r.guid??r.id??url); if(!guid.trim()) throw new Error('Missing article identity');\n // Include the feed namespace to avoid unrelated feeds sharing a GUID.\n const feedNamespace='REPLACE_WITH_YOUR_FEED_NAMESPACE';\n const name=('Post: '+String(r.title??'Article')).replace(/[\\u0000-\\u001f\\u007f]/g,' ').slice(0,100);\n return {json:{identity:feedNamespace+'\\n'+guid,name,url},pairedItem:{item:index}};\n});"
+      }
+    },
+    {
+      "id": "hash-article-identity",
+      "name": "Hash article identity",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 1,
+      "position": [
+        750,
+        0
+      ],
+      "parameters": {
+        "action": "hash",
+        "type": "SHA256",
+        "value": "={{ $json.identity }}",
+        "dataPropertyName": "digest",
+        "encoding": "hex"
+      }
+    },
+    {
+      "id": "prepare-article-campaigns",
+      "name": "Prepare article campaigns",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return $input.all().map((item,index)=>{\n const h=String(item.json.digest); if(!/^[a-f0-9]{64}$/i.test(h)) throw new Error('Expected SHA256 article identity');\n const requestId=h.slice(0,8)+'-'+h.slice(8,12)+'-4'+h.slice(13,16)+'-8'+h.slice(17,20)+'-'+h.slice(20,32);\n return {json:{campaign:{requestId,name:item.json.name,url:item.json.url,utmCampaign:'article-share',domain:'linkdevi.com',channels:['facebook','line','email']}},pairedItem:{item:index}};\n});"
+      }
+    },
+    {
+      "id": "create-saved-campaign",
+      "name": "Create saved campaign",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        1250,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://linkdevi.com/api/v1/agent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { action: 'create_campaign', campaign: $json.campaign } }}",
+        "options": {
+          "timeout": 25000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          },
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 2500
+            }
+          }
+        }
+      },
+      "retryOnFail": false,
+      "onError": "stopWorkflow"
+    },
+    {
+      "id": "csv-rows",
+      "name": "CSV rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1500,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const safe = value => { const s=String(value ?? ''); return /^[\\s\\u0000-\\u001f]*[=+@-]/.test(s) ? \"'\"+s : s; };\nreturn $input.all().flatMap((item,index)=>{\n const c=item.json.campaign;\n if(!c || !Array.isArray(c.channels)) throw new Error('Missing saved campaign response');\n return c.channels.map(row=>({json:{campaign:safe(c.name),channel:row.key,short_url:row.link?.shortUrl ?? '',destination_url:row.link?.url ?? '',status:row.link?'saved':'unavailable'},pairedItem:{item:index}}));\n});"
+      }
+    },
+    {
+      "id": "download-csv",
+      "name": "Download CSV",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        1750,
+        0
+      ],
+      "parameters": {
+        "operation": "csv",
+        "binaryPropertyName": "data",
+        "options": {
+          "fileName": "linkdevi-campaign-links.csv",
+          "headerRow": true
+        }
+      }
+    },
+    {
+      "id": "read-before-running",
+      "name": "Read before running",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -430
+      ],
+      "parameters": {
+        "content": "## Setup\n1. Create a LinkDevi account, then a scoped key with links:read and links:write. Hosted plan limits apply.\n2. In Create saved campaign, select a Header Auth credential: header name Authorization, value Bearer YOUR_SCOPED_KEY. Keep the key only in n8n Credentials.\n3. Keep retries disabled. Redirects are disabled so credentials stay on the configured origin.\n4. Preview your data before running. Each selected channel uses one stored-link slot. A timeout may have committed: preserve requestId and the exact campaign payload on retry.\n5. These workflows do not call an LLM, send email, post to social media or enable a schedule. Activate only after reviewing your own setup.\nGuide: https://linkdevi.com/features/ai\n\n## RSS setup\nSet your actual feed URL and replace feedNamespace in Prepare article identities with a stable unique value for that feed. Process at most five entries per manual run. IDs are deterministically derived using the built-in Crypto node, so unchanged articles replay safely. Keep the namespace, title, destination and campaign settings stable across retries. An edited title/destination with the same identity conflicts: review it before intentionally starting a new intent. Repeat runs still use API requests even when no extra links are created. No social post is sent.",
+        "width": 700,
+        "height": 360
+      }
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "Read RSS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read RSS": {
+      "main": [
+        [
+          {
+            "node": "Prepare article identities",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare article identities": {
+      "main": [
+        [
+          {
+            "node": "Hash article identity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hash article identity": {
+      "main": [
+        [
+          {
+            "node": "Prepare article campaigns",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare article campaigns": {
+      "main": [
+        [
+          {
+            "node": "Create saved campaign",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create saved campaign": {
+      "main": [
+        [
+          {
+            "node": "CSV rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CSV rows": {
+      "main": [
+        [
+          {
+            "node": "Download CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "tags": []
+}
