@@ -1,5 +1,7 @@
 # LinkDevi developer pack
 
+Documentation: [Quickstart](https://linkdevi.com/docs/quickstart) · [CLI](https://linkdevi.com/docs/cli) · [TypeScript SDK](https://linkdevi.com/docs/sdk) · [n8n setup](https://linkdevi.com/docs/n8n) · [AI-readable index](https://linkdevi.com/llms.txt).
+
 Offline Campaign Launch Kit helpers, a TypeScript SDK, a Node.js CLI and three n8n workflows. MIT licensed. Node.js 22+.
 
 Package name: `@kgma/linkdevi-tools`. The separately distributed `@kgma/linkdevi-mcp` is the MCP connector. This repository includes the complete source and build instructions; npm releases and source releases carry their own version.
