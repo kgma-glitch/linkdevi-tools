@@ -1,8 +1,9 @@
 #!/usr/bin/env node
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync, statSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { LinkDeviClient, LinkDeviError } from "./index.js";
 import { previewCampaign, validateCampaign, launchCsv, planCsvImport, type CampaignRequest } from "./campaign.js";
+import { lintUtmCsv, formatUtmReport } from "./utm.js";
 const help = `LinkDevi tools — Node 22+
 
   linkdevi campaign init [--out campaign.json]
@@ -11,6 +12,7 @@ const help = `LinkDevi tools — Node 22+
   linkdevi campaign list [--page 1]
   linkdevi campaign stats CAMPAIGN_ID
   linkdevi links import links.csv --dry-run
+  linkdevi utm lint links.csv [--format json|text|github] [--strict]
   linkdevi capabilities
 
 Preview, CSV validation and init work offline without an account.
@@ -20,6 +22,8 @@ CSV import is a preflight only; no bulk write is performed.
 Setup: https://linkdevi.com/features/ai`;
 function read(path: string | undefined) {
   if (!path || path.startsWith("--")) throw new Error("Provide an input file");
+  const info = statSync(path);
+  if (!info.isFile() || info.size > 262144) throw new Error("Use a regular input file up to 256 KiB");
   const value = readFileSync(path, "utf8");
   if (Buffer.byteLength(value) > 262144) throw new Error("Input exceeds 256 KiB");
   return value;
@@ -37,6 +41,15 @@ async function main(args: string[]) {
   if (!args.length || (args.length === 1 && ["--help", "-h"].includes(args[0]))) { console.log(help); return; }
   if (args.length === 1 && args[0] === "--version") { console.log(JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version); return; }
   const [group, command, input, ...extra] = args;
+  if (group === "utm" && command === "lint") {
+    const opts = options(extra, { "--format": "value", "--strict": "flag" });
+    const format = String(opts["--format"] || "text");
+    if (!["json", "text", "github"].includes(format)) throw new Error("Unknown report format");
+    const report = lintUtmCsv(read(input));
+    process.stdout.write(format === "json" ? JSON.stringify(report, null, 2) + "\n" : formatUtmReport(report, format as "text" | "github"));
+    if (report.summary.errors || (opts["--strict"] && report.summary.warnings)) process.exitCode = 1;
+    return;
+  }
   if (group === "campaign" && command === "init") {
     const opts = options(args.slice(2), { "--out": "value" });
     const draft = { requestId: randomUUID(), name: "December launch", url: "https://example.com/sale", utmCampaign: "december-launch", domain: "linkdevi.com", channels: ["facebook", "line", "print"] };

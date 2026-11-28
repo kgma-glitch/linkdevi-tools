@@ -1,0 +1,31 @@
+name: Package and UTM checks
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        node: ['22', '24']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: ${{ matrix.node }}
+          package-manager-cache: false
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm test
+      - run: node dist/cli.js utm lint examples/utm-links.csv --format github --strict
+      - run: npm pack --ignore-scripts --json > pack-manifest.json
+      - name: Install packed CLI in a clean consumer
+        run: |
+          npm install --prefix "$RUNNER_TEMP/linkdevi-consumer" --ignore-scripts --no-audit --no-fund ./kgma-linkdevi-tools-0.2.0.tgz
+          node "$RUNNER_TEMP/linkdevi-consumer/node_modules/@kgma/linkdevi-tools/dist/cli.js" utm lint examples/utm-links.csv --format json --strict

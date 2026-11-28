@@ -1,4 +1,5 @@
 export * from "./campaign.js";
+export * from "./utm.js";
 import { validateCampaign, type CampaignRequest, type CampaignChannel } from "./campaign.js";
 export interface CampaignView {
   id: string; name: string; url: string; utmCampaign: string; domain: string;

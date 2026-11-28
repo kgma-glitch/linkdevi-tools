@@ -1,7 +1,7 @@
 {
   "name": "@kgma/linkdevi-tools",
-  "version": "0.1.0",
-  "description": "Offline campaign launch kits, a typed LinkDevi API client and a campaign CLI.",
+  "version": "0.2.0",
+  "description": "Offline campaign launch kits and UTM linting, a typed LinkDevi API client and campaign CLI.",
   "type": "module",
   "license": "MIT",
   "engines": {
